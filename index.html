@@ -574,6 +574,7 @@
                 <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                     <button class="btn btn-primary" onclick="adicionarEmpresa()">➕ Nova Empresa</button>
                     <button class="btn btn-success" onclick="exportarDados()">📊 Exportar</button>
+                    <button class="btn btn-warning" onclick="mostrarImportacao()">📂 Importar CSV</button>
                     <button class="btn btn-google" onclick="toggleConfig()">⚙️ Config</button>
                 </div>
             </div>
@@ -606,6 +607,56 @@
                         <!-- Dados serão inseridos aqui pelo JavaScript -->
                     </tbody>
                 </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para importação CSV -->
+    <div id="importModal" class="modal">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <h2>📂 Importar Dados CSV/Excel</h2>
+                <span class="close" onclick="fecharImportModal()">&times;</span>
+            </div>
+            <div style="margin-bottom: 20px;">
+                <p style="color: #666; margin-bottom: 15px;">
+                    Importe dados em massa de arquivos CSV ou Excel. O sistema detectará automaticamente as colunas.
+                </p>
+                <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                    <strong>📋 Formato esperado:</strong><br>
+                    Nome da Empresa | Tipo | Contato | Email | Telefone | Estado | Website | Status | Prioridade | Observações
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="csvFile">Selecionar arquivo:</label>
+                <input type="file" id="csvFile" accept=".csv,.xlsx,.xls" onchange="processarArquivo(event)">
+            </div>
+            
+            <div id="previewSection" style="display: none; margin-top: 20px;">
+                <h3>👀 Preview dos dados (primeiras 5 linhas):</h3>
+                <div style="overflow-x: auto; max-height: 300px; border: 1px solid #ddd; border-radius: 8px;">
+                    <table id="previewTable" style="width: 100%; font-size: 0.9em;">
+                        <thead id="previewHeader"></thead>
+                        <tbody id="previewBody"></tbody>
+                    </table>
+                </div>
+                
+                <div style="margin-top: 20px;">
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="hasHeader" checked onchange="atualizarPreview()">
+                            Primeira linha contém cabeçalhos
+                        </label>
+                    </div>
+                </div>
+                
+                <div style="text-align: center; margin-top: 25px;">
+                    <button class="btn btn-success" onclick="confirmarImportacao()">
+                        ✅ Importar <span id="importCount">0</span> empresas
+                    </button>
+                    <button class="btn btn-danger" onclick="fecharImportModal()">❌ Cancelar</button>
+                </div>
             </div>
         </div>
     </div>
@@ -1133,6 +1184,8 @@
         let editandoId = null;
         let googleSheetsConnected = false;
         let gapi_loaded = false;
+        let dadosImportacao = [];
+        let arquivoAtual = null;
 
         // Configuração do Google Sheets API
         const DISCOVERY_DOC = 'https://sheets.googleapis.com/$discovery/rest?version=v4';
@@ -1545,11 +1598,16 @@
             }, 1500);
         }
 
-        // Event listener para fechar modal ao clicar fora dele
+        // Event listener para fechar modals ao clicar fora deles
         window.addEventListener('click', function(event) {
-            const modal = document.getElementById('empresaModal');
-            if (event.target === modal) {
+            const empresaModal = document.getElementById('empresaModal');
+            const importModal = document.getElementById('importModal');
+            
+            if (event.target === empresaModal) {
                 fecharModal();
+            }
+            if (event.target === importModal) {
+                fecharImportModal();
             }
         });
 
@@ -1714,6 +1772,181 @@
                 }
             };
             reader.readAsText(file);
+        }
+
+        // Funções de importação CSV
+        function mostrarImportacao() {
+            document.getElementById('importModal').style.display = 'block';
+        }
+
+        function fecharImportModal() {
+            document.getElementById('importModal').style.display = 'none';
+            document.getElementById('previewSection').style.display = 'none';
+            document.getElementById('csvFile').value = '';
+            dadosImportacao = [];
+            arquivoAtual = null;
+        }
+
+        function processarArquivo(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            arquivoAtual = file;
+            const fileName = file.name.toLowerCase();
+
+            if (fileName.endsWith('.csv')) {
+                processarCSV(file);
+            } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+                processarExcel(file);
+            } else {
+                mostrarNotificacao('Formato de arquivo não suportado. Use CSV ou Excel.', 'error');
+            }
+        }
+
+        function processarCSV(file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const csv = e.target.result;
+                const linhas = csv.split('\n').filter(linha => linha.trim());
+                
+                dadosImportacao = linhas.map(linha => {
+                    // Parse simples de CSV (pode melhorar para tratar vírgulas em aspas)
+                    return linha.split(',').map(campo => campo.trim().replace(/^"|"$/g, ''));
+                });
+                
+                mostrarPreview();
+            };
+            reader.readAsText(file);
+        }
+
+        function processarExcel(file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    // Simulação de processamento Excel
+                    // Em produção, usaria uma biblioteca como SheetJS
+                    mostrarNotificacao('Processamento Excel em desenvolvimento. Use CSV por enquanto.', 'error');
+                } catch (error) {
+                    mostrarNotificacao('Erro ao processar arquivo Excel.', 'error');
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function mostrarPreview() {
+            if (dadosImportacao.length === 0) return;
+
+            document.getElementById('previewSection').style.display = 'block';
+            atualizarPreview();
+        }
+
+        function atualizarPreview() {
+            const hasHeader = document.getElementById('hasHeader').checked;
+            const previewHeader = document.getElementById('previewHeader');
+            const previewBody = document.getElementById('previewBody');
+            
+            previewHeader.innerHTML = '';
+            previewBody.innerHTML = '';
+
+            if (dadosImportacao.length === 0) return;
+
+            // Criar cabeçalho
+            const headerRow = document.createElement('tr');
+            const colunas = hasHeader ? dadosImportacao[0] : 
+                ['Coluna 1', 'Coluna 2', 'Coluna 3', 'Coluna 4', 'Coluna 5', 'Coluna 6', 'Coluna 7', 'Coluna 8', 'Coluna 9', 'Coluna 10'];
+            
+            colunas.forEach(coluna => {
+                const th = document.createElement('th');
+                th.textContent = coluna;
+                th.style.padding = '10px';
+                th.style.background = '#f8f9fa';
+                th.style.borderBottom = '2px solid #dee2e6';
+                headerRow.appendChild(th);
+            });
+            previewHeader.appendChild(headerRow);
+
+            // Criar linhas de preview (máximo 5)
+            const startIndex = hasHeader ? 1 : 0;
+            const endIndex = Math.min(startIndex + 5, dadosImportacao.length);
+            
+            for (let i = startIndex; i < endIndex; i++) {
+                const row = document.createElement('tr');
+                dadosImportacao[i].forEach(campo => {
+                    const td = document.createElement('td');
+                    td.textContent = campo || '';
+                    td.style.padding = '8px 10px';
+                    td.style.borderBottom = '1px solid #dee2e6';
+                    row.appendChild(td);
+                });
+                previewBody.appendChild(row);
+            }
+
+            // Atualizar contador
+            const totalLinhas = hasHeader ? dadosImportacao.length - 1 : dadosImportacao.length;
+            document.getElementById('importCount').textContent = totalLinhas;
+        }
+
+        function confirmarImportacao() {
+            if (dadosImportacao.length === 0) {
+                mostrarNotificacao('Nenhum dado para importar.', 'error');
+                return;
+            }
+
+            const hasHeader = document.getElementById('hasHeader').checked;
+            const startIndex = hasHeader ? 1 : 0;
+            let importados = 0;
+            let erros = 0;
+
+            mostrarNotificacao('Iniciando importação...', 'success');
+
+            // Mapear colunas (assumindo ordem padrão)
+            for (let i = startIndex; i < dadosImportacao.length; i++) {
+                const linha = dadosImportacao[i];
+                
+                if (linha.length < 4) { // Mínimo: nome, tipo, contato, email
+                    erros++;
+                    continue;
+                }
+
+                try {
+                    const novoId = Math.max(...empresas.map(e => e.id), 0) + 1;
+                    const novaEmpresa = {
+                        id: novoId,
+                        nome: linha[0] || 'Nome não informado',
+                        tipo: linha[1] || 'Escritório de Advocacia',
+                        contato: linha[2] || 'Contato não informado',
+                        email: linha[3] || 'email@exemplo.com',
+                        telefone: linha[4] || '',
+                        estado: linha[5] || '',
+                        website: linha[6] || '',
+                        status: linha[7] || 'Prospecto',
+                        prioridade: linha[8] || 'Média',
+                        ultimoContato: new Date().toISOString().split('T')[0],
+                        observacoes: linha[9] || 'Importado via CSV'
+                    };
+
+                    empresas.push(novaEmpresa);
+                    importados++;
+                } catch (error) {
+                    erros++;
+                }
+            }
+
+            // Atualizar interface
+            renderizarTabela();
+            fecharImportModal();
+
+            // Sincronizar com Google Sheets se conectado
+            if (googleSheetsConnected) {
+                salvarDadosGoogleSheets();
+            }
+
+            // Mostrar resultado
+            if (importados > 0) {
+                mostrarNotificacao(`✅ ${importados} empresas importadas com sucesso!${erros > 0 ? ` (${erros} erros)` : ''}`, 'success');
+            } else {
+                mostrarNotificacao(`❌ Nenhuma empresa foi importada. ${erros} erros encontrados.`, 'error');
+            }
         }
     </script>
 </body>
